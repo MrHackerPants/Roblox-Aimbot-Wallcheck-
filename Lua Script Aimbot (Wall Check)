@@ -1,0 +1,88 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local localPlayer = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+local isRightClickHeld = false
+local lockOnTarget = nil
+
+-- Wallcheck with raycast
+local function hasLineOfSight(part)
+	if not part then return false end
+
+	local origin = camera.CFrame.Position
+	local direction = (part.Position - origin).Unit * (part.Position - origin).Magnitude
+
+	local rayParams = RaycastParams.new()
+	rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+	rayParams.FilterDescendantsInstances = {localPlayer.Character, camera}
+	rayParams.IgnoreWater = true
+
+	local result = workspace:Raycast(origin, direction, rayParams)
+
+	return result and result.Instance:IsDescendantOf(part.Parent)
+end
+
+-- Find closest visible head
+local function getClosestVisibleHead()
+	local closest = nil
+	local shortestDistance = math.huge
+
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= localPlayer and player.Character and player.Character:FindFirstChild("Head") then
+			local head = player.Character.Head
+			local screenPoint, onScreen = camera:WorldToViewportPoint(head.Position)
+			if onScreen and hasLineOfSight(head) then
+				local mouseLocation = UserInputService:GetMouseLocation()
+				local distance = (Vector2.new(screenPoint.X, screenPoint.Y) - Vector2.new(mouseLocation.X, mouseLocation.Y)).Magnitude
+				if distance < shortestDistance then
+					shortestDistance = distance
+					closest = head
+				end
+			end
+		end
+	end
+
+	return closest
+end
+
+-- Input handling
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if input.UserInputType == Enum.UserInputType.MouseButton2 and not gameProcessed then
+		isRightClickHeld = true
+		lockOnTarget = getClosestVisibleHead()
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton2 then
+		isRightClickHeld = false
+		lockOnTarget = nil
+	end
+end)
+
+-- Auto-lock onto next target when the current one dies or becomes invalid
+local function isTargetValid(target)
+	if not target then return false end
+	if not target:IsDescendantOf(workspace) then return false end
+	if not target.Parent:FindFirstChild("Humanoid") then return false end
+	if target.Parent:FindFirstChild("Humanoid").Health <= 0 then return false end
+	if not hasLineOfSight(target) then return false end
+	return true
+end
+
+-- Render loop
+RunService.RenderStepped:Connect(function()
+	if isRightClickHeld then
+		if not isTargetValid(lockOnTarget) then
+			lockOnTarget = getClosestVisibleHead()
+		end
+
+		if lockOnTarget then
+			local targetPos = lockOnTarget.Position + Vector3.new(0, 1.5, 0)
+			camera.CFrame = CFrame.new(camera.CFrame.Position, targetPos)
+		end
+	end
+end)
